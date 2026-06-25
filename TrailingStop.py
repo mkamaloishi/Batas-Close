@@ -1,57 +1,16 @@
-# ========================================================
-# CONFIGURASI SAKLEK (BUY 4002 -> 4004 -> SL 4003.5 -> JALAN PER 0.3)
-# ========================================================
-SYMBOL_TARGET = "XAUUSD"      
-TRIGGER_PROFIT_POIN = 2.0     # Harga naik 2.0 poin baru bot aktif (4002 ke 4004)
-TRAILING_DISTANCE_POIN = 0.5  # Jarak SL di belakang harga running (4004 - 0.5 = 4003.5)
-TRAILING_STEP_POIN = 0.3      # SL BARU IKUT BERGESER TIAP ADA KENAIKAN 0.3 POIN
-JEDA_SCAN_DETIK = 1         
+# Jika posisi sekarang adalah BUY
+if posisi_sekarang == "BUY":
+    harga_tertinggi = max(harga_tertinggi, harga_sekarang)
+    if harga_tertinggi >= entry_price + 2.000:
+        sl_seharusnya = harga_tertinggi - 0.300
+        if sl_seharusnya > current_sl:
+            current_sl = sl_seharusnya
 
-def pantau_dan_kunci_posisi():
-    if SYMBOL_TARGET != "":
-        positions = mt5.positions_get(symbol=SYMBOL_TARGET)
-    else:
-        positions = mt5.positions_get()
-
-    if positions is None or len(positions) == 0:
-        return 
-
-    for pos in positions:
-        ticket = pos.ticket
-        tipe_trade = pos.type
-        harga_open = pos.price_open
-        harga_now = pos.price_current
-        sl_now = pos.sl
-        tp_now = pos.tp
-
-        # ----------------------------------------------------
-        # LOGIKA BUY (TRAIL JALAN TIAP NAIK 0.3 POIN)
-        # ----------------------------------------------------
-        if tipe_trade == mt5.POSITION_TYPE_BUY:
-            sl_ideal_baru = harga_now - TRAILING_DISTANCE_POIN
-            
-            if harga_now >= (harga_open + TRIGGER_PROFIT_POIN):
-                
-                # 1. Kancingan pertama pas running touch 4004.0 -> SL pasang di 4003.5
-                if sl_now == 0:
-                    eksekusi_modifikasi_sl(ticket, sl_ideal_baru, tp_now)
-                
-                # 2. SL baru ikut bergeser naik jika jarak SL baru ke SL lama minimal 0.3 poin
-                elif sl_ideal_baru >= (sl_now + TRAILING_STEP_POIN):
-                    eksekusi_modifikasi_sl(ticket, sl_ideal_baru, tp_now)
-
-        # ----------------------------------------------------
-        # LOGIKA SELL (TRAIL JALAN TIAP TURUN 0.3 POIN)
-        # ----------------------------------------------------
-        elif tipe_trade == mt5.POSITION_TYPE_SELL:
-            sl_ideal_baru = harga_now + TRAILING_DISTANCE_POIN
-            
-            if harga_now <= (harga_open - TRIGGER_PROFIT_POIN):
-                
-                # 1. Kancingan pertama pas running profit 2.0 poin
-                if sl_now == 0:
-                    eksekusi_modifikasi_sl(ticket, sl_ideal_baru, tp_now)
-                
-                # 2. SL baru ikut bergeser turun jika jarak SL baru ke SL lama minimal 0.3 poin
-                elif sl_ideal_baru <= (sl_now - TRAILING_STEP_POIN):
-                    eksekusi_modifikasi_sl(ticket, sl_ideal_baru, tp_now)
+# Jika posisi sekarang adalah SELL
+elif posisi_sekarang == "SELL":
+    harga_terendah = min(harga_terendah, harga_sekarang) # Catat harga paling rendah
+    if harga_terendah <= entry_price - 2.000:            # Cek apakah sudah turun 20 pips
+        sl_seharusnya = harga_terendah + 0.300          # Jarak trailing di atas harga terendah
+        if sl_seharusnya < current_sl or current_sl == 0: # SL hanya boleh makin turun
+            current_sl = sl_seharusnya
+            print(f"SL SELL Auto Turun ke: {current_sl}")
