@@ -1,0 +1,98 @@
+import datetime
+import MetaTrader5 as mt5
+import pandas as pd
+
+# ==========================================
+# KONFIGURASI OTOMATIS EXNESS
+# ==========================================
+# Daftar variasi simbol Emas yang umum digunakan di berbagai jenis akun Exness
+SIMBOL_KANDIDAT = ["XAUUSD", "XAUUSDm", "XAUUSDc", "GOLD"]
+DURASI_BULAN = 3
+OUTPUT_FILE = "xauusd_m1_exness.parquet"
+
+# ==========================================
+# PROSES EKSEKUSI
+# ==========================================
+
+
+def download_data_exness():
+    # 1. Inisialisasi koneksi ke terminal MT5 Exness
+    if not mt5.initialize():
+        print("=" * 60)
+        print(" ERROR: GAGAL TERHUBUNG KE METATRADER 5!")
+        print(" Pastikan software MT5 Exness Anda SUDAH DIBUKA di laptop Anda.")
+        print("=" * 60)
+        return
+
+    print(f" [OK] Terhubung ke Broker: {mt5.account_info().company}")
+
+    # 2. Fitur Auto-Detect Simbol Aktif di Exness
+    simbol_aktif = None
+    for simbol in SIMBOL_KANDIDAT:
+        # Cek apakah simbol tersedia di market watch atau server broker
+        info_simbol = mt5.symbol_info(simbol)
+        if info_simbol is not None:
+            # Pastikan simbol terpilih masuk ke Market Watch agar bisa ditarik datanya
+            mt5.symbol_select(simbol, True)
+            simbol_aktif = simbol
+            print(f" [OK] Simbol aktif Exness terdeteksi: '{simbol_aktif}'")
+            break
+
+    if simbol_aktif is None:
+        print(
+            " [ERROR] Tidak dapat menemukan simbol Emas yang cocok dengan akun Exness Anda."
+        )
+        mt5.shutdown()
+        return
+
+    # 3. Hitung Waktu Mundur 3 Bulan Ke Belakang
+    waktu_sekarang = datetime.datetime.now()
+    waktu_lampau = waktu_sekarang - datetime.timedelta(days=DURASI_BULAN * 30)
+
+    print(f" [PROSES] Menarik data M1 dari {waktu_lampau.date()} hingga hari ini...")
+
+    # 4. Ambil Data Candlestick M1 dari Server Exness
+    rates = mt5.copy_rates_range(
+        simbol_aktif, mt5.TIMEFRAME_M1, waktu_lampau, waktu_sekarang
+    )
+
+    # Matikan koneksi MT5 setelah selesai mengambil data
+    mt5.shutdown()
+
+    # 5. Validasi dan Konversi Format Data ke Parquet
+    if rates is not None and len(rates) > 0:
+        df = pd.DataFrame(rates)
+
+        # Rapikan format waktu Unix ke Datetime normal
+        df["time"] = pd.to_datetime(df["time"], unit="s")
+
+        # Susun ulang kolom agar pas dengan struktur XGBoost
+        df = df[["time", "open", "high", "low", "close", "tick_volume"]]
+        df.columns = ["Time", "Open", "High", "Low", "Close", "Volume"]
+
+        # Bungkus menjadi file Parquet yang ringan
+        df.to_parquet(OUTPUT_FILE, index=False)
+
+        print("\n" + "=" * 60)
+        print("            PROSES DOWNLOAD SELESAI DENGAN SUKSES!            ")
+        print("=" * 60)
+        print(f" Simbol Terpakai         : {simbol_aktif}")
+        print(f" Total Baris M1 Terambil : {len(df):,} baris")
+        print(f" Rentang Waktu Data      : {df['Time'].min()} s/d {df['Time'].max()}")
+        print(f" File Hasil Penyimpanan  : {OUTPUT_FILE}")
+        print("=" * 60)
+        print(
+            "\n LANGKAH BERIKUTNYA:\n Silakan upload file 'xauusd_m1_exness.parquet' tersebut ke Google Drive Anda,\n lalu beri tahu saya jika sudah selesai agar kita lanjut ke script Google Colab!"
+        )
+
+    else:
+        print(
+            " [ERROR] Gagal menarik data. Server broker belum memuat riwayat data M1 sejauh 3 bulan."
+        )
+        print(
+            " Solusi: Buka chart XAUUSD M1 di MT5 Anda, lalu tekan tombol 'Page Up' pada keyboard berkali-kali agar datanya terunduh otomatis dari server."
+        )
+
+
+if __name__ == "__main__":
+    download_data_exness()
