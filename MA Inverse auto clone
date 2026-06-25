@@ -3,7 +3,7 @@
 //|                                                        GG x Oishi|
 //+------------------------------------------------------------------+
 #property copyright "GG x Oishi"
-#property version   "2.00"
+#property version   "2.01"
 #property indicator_chart_window
 #property indicator_buffers 3
 #property indicator_plots   3
@@ -132,7 +132,8 @@ int OnCalculate(const int rates_total,
       // Hitung rumus kebalikan (Mirroring) per bar harian
       for(int i = start; i < rates_total; i++)
         {
-         if(tempMABuffer[i] == EMPTY_VALUE || tempMABuffer[i] == 0 || i >= copied)
+         // FIX FIX FIX: Cek "i >= copied" ditaruh paling depan supaya ga Array Out of Range!
+         if(i >= copied || tempMABuffer[i] == EMPTY_VALUE || tempMABuffer[i] == 0)
            {
             ResetBufferSlot(m, i);
             continue;
