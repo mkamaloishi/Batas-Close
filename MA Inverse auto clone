@@ -1,0 +1,185 @@
+//+------------------------------------------------------------------+
+//|                                       Auto_Multi_Inverse_MA.mq5  |
+//|                                                        GG x Oishi|
+//+------------------------------------------------------------------+
+#property copyright "GG x Oishi"
+#property version   "2.00"
+#property indicator_chart_window
+#property indicator_buffers 3
+#property indicator_plots   3
+
+// Garis Kebalikan MA ke-1 (Warna Merah)
+#property indicator_label1  "Inverse MA 1"
+#property indicator_type1   DRAW_LINE
+#property indicator_color1  clrCrimson
+#property indicator_style1  STYLE_SOLID
+#property indicator_width1  2
+
+// Garis Kebalikan MA ke-2 (Warna Orange)
+#property indicator_label2  "Inverse MA 2"
+#property indicator_type2   DRAW_LINE
+#property indicator_color2  clrDarkOrange
+#property indicator_style2  STYLE_SOLID
+#property indicator_width2  2
+
+// Garis Kebalikan MA ke-3 (Warna Magenta/Pink Tua)
+#property indicator_label3  "Inverse MA 3"
+#property indicator_type3   DRAW_LINE
+#property indicator_color3  clrMagenta
+#property indicator_style3  STYLE_SOLID
+#property indicator_width3  2
+
+// Buffers Output Chart
+double InverseBuffer1[];
+double InverseBuffer2[];
+double InverseBuffer3[];
+
+// Array Global untuk simpan Handle dan Nama MA yang terdeteksi
+int    maHandles[3] = {INVALID_HANDLE, INVALID_HANDLE, INVALID_HANDLE};
+string lastMANames[3] = {"", "", ""};
+
+//+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   // Daftarkan buffer ke chart
+   SetIndexBuffer(0, InverseBuffer1, INDICATOR_DATA);
+   SetIndexBuffer(1, InverseBuffer2, INDICATOR_DATA);
+   SetIndexBuffer(2, InverseBuffer3, INDICATOR_DATA);
+   
+   IndicatorSetString(INDICATOR_SHORTNAME, "Auto_Multi_Inverse");
+   
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Custom indicator deinitialization function                       |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   // Bersihkan semua handle biar MT5 ga lag
+   for(int i = 0; i < 3; i++)
+     {
+      if(maHandles[i] != INVALID_HANDLE)
+         IndicatorRelease(maHandles[i]);
+     }
+  }
+//+------------------------------------------------------------------+
+//| Custom indicator iteration function                              |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &spread[],
+                const long &real_volume[])
+  {
+   // 1. Scan MA aktif di chart (Maksimal 3)
+   string currentNames[3] = {"", "", ""};
+   int maFound = FindActiveMAs(currentNames);
+   
+   // Tampilkan status di pojok chart
+   string statusText = "✅ [Multi Inverse] Terdeteksi " + IntegerToString(maFound) + " MA: ";
+   for(int i = 0; i < maFound; i++) statusText += "[" + currentNames[i] + "] ";
+   if(maFound == 0) statusText = "❌ [Multi Inverse]: Pasang indikator MA dulu di chart, bruh!";
+   Comment(statusText);
+
+   // 2. Refresh Handle jika ada perubahan indikator MA di chart
+   for(int i = 0; i < 3; i++)
+     {
+      if(currentNames[i] != lastMANames[i] || maHandles[i] == INVALID_HANDLE)
+        {
+         if(maHandles[i] != INVALID_HANDLE)
+            IndicatorRelease(maHandles[i]);
+            
+         if(currentNames[i] != "")
+            maHandles[i] = ChartIndicatorGet(0, 0, currentNames[i]);
+         else
+            maHandles[i] = INVALID_HANDLE;
+            
+         lastMANames[i] = currentNames[i];
+        }
+     }
+
+   // Tentukan bar awal kalkulasi
+   int start = prev_calculated - 1;
+   if(start < 0) start = 0;
+
+   // Array dinamis lokal untuk copy data MA sementara
+   double tempMABuffer[];
+
+   // 3. Loop hitung kebalikan untuk masing-masing MA yang ketemu
+   for(int m = 0; m < 3; m++)
+     {
+      // Jika slot MA ini kosong, bersihkan garisnya dari chart
+      if(maHandles[m] == INVALID_HANDLE)
+        {
+         for(int i = start; i < rates_total; i++)
+           {
+            ResetBufferSlot(m, i);
+           }
+         continue;
+        }
+
+      // Ambil data MA asli
+      int copied = CopyBuffer(maHandles[m], 0, 0, rates_total, tempMABuffer);
+      if(copied <= 0) continue;
+
+      // Hitung rumus kebalikan (Mirroring) per bar harian
+      for(int i = start; i < rates_total; i++)
+        {
+         if(tempMABuffer[i] == EMPTY_VALUE || tempMABuffer[i] == 0 || i >= copied)
+           {
+            ResetBufferSlot(m, i);
+            continue;
+           }
+
+         // Rumus Mirroring deviasi harga close ke MA
+         double inverseValue = (2.0 * close[i]) - tempMABuffer[i];
+         
+         // Masukkan ke buffer chart sesuai slot MA-nya
+         if(m == 0) InverseBuffer1[i] = inverseValue;
+         if(m == 1) InverseBuffer2[i] = inverseValue;
+         if(m == 2) InverseBuffer3[i] = inverseValue;
+        }
+     }
+
+   return(rates_total);
+  }
+//+------------------------------------------------------------------+
+//| Fungsi Scan Maksimal 3 MA di Main Chart                          |
+//+------------------------------------------------------------------+
+int FindActiveMAs(string &names[])
+  {
+   int totalIndicators = ChartIndicatorsTotal(0, 0);
+   int count = 0;
+   
+   for(int i = 0; i < totalIndicators; i++)
+     {
+      if(count >= 3) break; // Kalo udah dapet 3, stop scan.
+      
+      string name = ChartIndicatorName(0, 0, i);
+      
+      // Filter deteksi MA asli (bukan ngedeteksi dirinya sendiri)
+      if((StringFind(name, "MA") >= 0 || StringFind(name, "Moving Average") >= 0) && StringFind(name, "Auto_") < 0)
+        {
+         names[count] = name;
+         count++;
+        }
+     }
+   return count;
+  }
+//+------------------------------------------------------------------+
+//| Helper buat nge-reset data buffer biar ga muncul garis hantu     |
+//+------------------------------------------------------------------+
+void ResetBufferSlot(int slot, int index)
+  {
+   if(slot == 0) InverseBuffer1[index] = EMPTY_VALUE;
+   if(slot == 1) InverseBuffer2[index] = EMPTY_VALUE;
+   if(slot == 2) InverseBuffer3[index] = EMPTY_VALUE;
+  }
+//+------------------------------------------------------------------+
