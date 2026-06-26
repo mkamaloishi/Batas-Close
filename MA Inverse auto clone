@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
 //|                                       Auto_Multi_Inverse_MA.mq5  |
-//|                                                        GG x Oishi|
+//|                                                     Seek x Oishi |
 //+------------------------------------------------------------------+
-#property copyright "GG x Oishi"
+#property copyright "Seek x Oishi"
 #property version   "2.03"
 #property indicator_chart_window
 #property indicator_buffers 3
@@ -76,7 +76,7 @@ int OnCalculate(const int rates_total,
                 const double &close[],
                 const long &tick_volume[],
                 const long &real_volume[],
-                const int &spread[]) // FIX: Menggunakan tipe int & urutan yang benar
+                const int &spread[])
   {
    // 1. Scan MA aktif di chart (Maksimal 3)
    string currentNames[3] = {"", "", ""};
