@@ -2,7 +2,7 @@
 //|                                            MA Inverse Auto Clone |
 //+------------------------------------------------------------------+
 #property copyright "Seek x Oishi"
-#property version   "2.04"
+#property version   "2.05"
 #property indicator_chart_window
 #property indicator_buffers 3
 #property indicator_plots   3
@@ -68,6 +68,7 @@ int OnCalculate(const int rates_total,
    if(maFound == 0) statusText = "Pasang indikator MA dulu di chart!";
    Comment(statusText);
 
+   // Update Handle
    for(int i = 0; i < 3; i++)
    {
       if(currentNames[i] != lastMANames[i] || maHandles[i] == INVALID_HANDLE)
@@ -102,6 +103,7 @@ int OnCalculate(const int rates_total,
 
       for(int i = start; i < rates_total; i++)
       {
+         // Cegah data kosong
          if(i >= copied || tempMABuffer[i] == EMPTY_VALUE || tempMABuffer[i] == 0)
          {
             if(m == 0) InverseBuffer1[i] = 0;
@@ -110,7 +112,10 @@ int OnCalculate(const int rates_total,
             continue;
          }
 
-         double inverseValue = (2.0 * close[i]) - tempMABuffer[i];
+         // === RUMUS PENCERMINAN SEMPURNA (BUKAN INVERSI HARGA) ===
+         // Ini akan membuat garis "terbalik" presisi mengikuti jarak MA dari Harga.
+         double inverseValue = (2.0 * tempMABuffer[i]) - close[i];
+
          if(m == 0) InverseBuffer1[i] = inverseValue;
          else if(m == 1) InverseBuffer2[i] = inverseValue;
          else if(m == 2) InverseBuffer3[i] = inverseValue;
