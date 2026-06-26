@@ -1,0 +1,187 @@
+//+------------------------------------------------------------------+
+//|                               Proyek1_Strict_With_Imbalance.mq5   |
+//|                                  Copyright 2026, Oishi x GG.      |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2026"
+#property indicator_chart_window
+#property indicator_plots 0
+
+//--- Input Proyek 1: Proximity Line Alert
+input group "--- LINE PROXIMITY SETTINGS ---"
+input double   InpAlertDistance  = 5.0;         // Jarak Pemicu Alarm Line (Contoh: 5.0 poin)
+input bool     InpPushAlertLine  = true;        // Kirim Alarm Line ke HP
+
+//--- Input Upgrade: Imbalance Settings
+input group "--- IMBALANCE ALARM SETTINGS ---"
+input bool     InpPushAlertImb   = true;        // Kirim Alarm Imbalance ke HP
+
+//--- Global Variables Proyek 1 (Lines)
+ENUM_TIMEFRAMES LineTFs[5] = {PERIOD_H3, PERIOD_H6, PERIOD_D1, PERIOD_W1, PERIOD_MN1};
+string LineTFNames[5]     = {"H3", "H6", "D1", "W1", "MN1"};
+color LineTFColors[5]     = {clrOrange, clrMagenta, clrDodgerBlue, clrDarkGreen, clrRed};
+bool alertTriggered[5][4][5]; // State machine pengunci alarm kedekatan harga
+
+//--- Global Variables Upgrade (Imbalance Multi TF Looked)
+ENUM_TIMEFRAMES ImbTFs[5] = {PERIOD_M5, PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H3};
+string ImbTFNames[5]     = {"M5", "M15", "M30", "H1", "H3"};
+datetime lastProcessedBar[5]; // Mencegah alert berulang pada bar yang sama
+
+//+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   // Reset semua status tracker awal
+   ZeroMemory(alertTriggered);
+   ZeroMemory(lastProcessedBar);
+   return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Custom indicator deinitialization function                       |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   // Bersihkan chart dari objek garis saat indikator dilepas
+   ObjectsDeleteAll(0, "HTF_");
+}
+
+//+------------------------------------------------------------------+
+//| Custom indicator iteration function                              |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
+{
+   // Validasi kecukupan data chart
+   if(rates_total < 50) return(0);
+
+   double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(currentPrice == 0) return(rates_total);
+
+   //------------------------------------------------------------------
+   // BAGIAN 1: LOGIKA PROXIMITY LINE ALERT (H3, H6, D1, W1, MN1)
+   //------------------------------------------------------------------
+   for(int i=0; i<5; i++) 
+   {
+      MqlRates rates[];
+      ArraySetAsSeries(rates, true);
+      if(CopyRates(_Symbol, LineTFs[i], 1, 5, rates) <= 0) continue;
+      
+      for(int k=0; k<5; k++)
+      {
+         double prices[4];
+         prices[0] = rates[k].open;  
+         prices[1] = rates[k].close; 
+         prices[2] = rates[k].high;  
+         prices[3] = rates[k].low;   
+         string types[4] = {"Open", "Close", "High", "Low"};
+         
+         for(int j=0; j<4; j++) 
+         {
+            string lineName = "HTF_" + LineTFNames[i] + "_" + types[j] + "_B" + IntegerToString(k+1);
+            ENUM_LINE_STYLE lineStyle = (k == 0) ? STYLE_SOLID : STYLE_DOT;
+            
+            if(ObjectFind(0, lineName) < 0) 
+            {
+               ObjectCreate(0, lineName, OBJ_HLINE, 0, 0, prices[j]);
+               ObjectSetInteger(0, lineName, OBJPROP_COLOR, LineTFColors[i]);
+               ObjectSetInteger(0, lineName, OBJPROP_STYLE, lineStyle);
+               ObjectSetInteger(0, lineName, OBJPROP_WIDTH, 1);
+               ObjectSetString(0, lineName, OBJPROP_TEXT, LineTFNames[i] + " " + types[j] + " (C" + IntegerToString(k+1) + ")");
+            } 
+            else 
+            {
+               ObjectMove(0, lineName, 0, 0, prices[j]);
+            }
+            
+            double currentDistance = MathAbs(currentPrice - prices[j]);
+            if(currentDistance <= InpAlertDistance) 
+            {
+               if(!alertTriggered[i][j][k]) 
+               {
+                  alertTriggered[i][j][k] = true; 
+                  string arahHarga = (currentPrice < prices[j]) ? "KE ATAS" : "KE BAWAH";
+                  string msg = StringFormat("[ALARM LINE] %s mendekati %s %s (Candle-%d) | Arah: %s | Harga: %s", 
+                                            _Symbol, LineTFNames[i], types[j], k+1, arahHarga, DoubleToString(currentPrice, _Digits));
+                  Print(msg);
+                  if(InpPushAlertLine) SendNotification(msg);
+               }
+            }
+            else 
+            {
+               if(currentDistance > (InpAlertDistance + 0.5)) 
+               {
+                  alertTriggered[i][j][k] = false; 
+               }
+            }
+         }
+      }
+   }
+
+   //------------------------------------------------------------------
+   // BAGIAN 2: UPGRADE LOGIKA ALARM IMBALANCE (M5, M15, M30, H1, H3)
+   //------------------------------------------------------------------
+   for(int i=0; i<5; i++)
+   {
+      MqlRates rates[];
+      ArraySetAsSeries(rates, true);
+      
+      // Ambil data candle index 1 (Candle yang BARU SAJA CLOSE/terbentuk sempurna)
+      if(CopyRates(_Symbol, ImbTFs[i], 1, 1, rates) <= 0) continue;
+      
+      // Proteksi awal biar tidak mengirim alarm history saat indikator baru dipasang pertama kali
+      if(prev_calculated == 0 && lastProcessedBar[i] == 0)
+      {
+         lastProcessedBar[i] = rates[0].time;
+         continue;
+      }
+      
+      // Cek apakah candle index 1 ini adalah bar baru yang belum pernah dianalisis rasionya
+      if(rates[0].time != lastProcessedBar[i])
+      {
+         double totalLength = rates[0].high - rates[0].low;
+         
+         // Hindari pembagian dengan nol jika ada candle tanpa volalitas sama sekali (titik doji sempurna)
+         if(totalLength > 0)
+         {
+            double bodyLength = MathAbs(rates[0].close - rates[0].open);
+            double bodyRatio = (bodyLength / totalLength) * 100.0; // Persentase Body terhadap total sumbu
+            
+            // Masuk kriteria Imbalance jika Body berada di rentang 40% ke bawah
+            if(bodyRatio <= 40.0)
+            {
+               string kategoriStr = "";
+               
+               // Mengelompokkan berdasarkan 3 Kategori Imbalance spesifik Anda
+               if(bodyRatio <= 10.0) kategoriStr = "Kategori 1 (Body <= 10%)";
+               else if(bodyRatio > 10.0 && bodyRatio <= 25.0) kategoriStr = "Kategori 2 (Body 10%-25%)";
+               else if(bodyRatio > 25.0 && bodyRatio <= 40.0) kategoriStr = "Kategori 3 (Body 25%-40%)";
+               
+               // Susun Teks Sesuai Instruksi Mandat Anda
+               string msgImb = StringFormat(" Imbalance Candle Created in TF %s [%s | Ratio: %.1f%%]", 
+                                            ImbTFNames[i], kategoriStr, bodyRatio);
+               
+               Print("[IMBALANCE DETECTED] " + msgImb);
+               
+               if(InpPushAlertImb)
+               {
+                  SendNotification(msgImb); // Kirim push notif langsung ke HP MT5
+               }
+            }
+         }
+         // Kunci waktu bar ini agar tidak terjadi double trigger/spamming pada tick berikutnya
+         lastProcessedBar[i] = rates[0].time;
+      }
+   }
+
+   return(rates_total);
+}
+//+------------------------------------------------------------------+
