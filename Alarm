@@ -1,25 +1,19 @@
 //+------------------------------------------------------------------+
-//|                               Proyek1_Strict_With_Imbalance.mq5   |
-//|                                  Copyright 2026, Oishi x GG.      |
+//|                                     Proyek1_Imbalance_Only.mq5   |
+//|                                  Copyright 2026, Oishi.          |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026"
 #property indicator_chart_window
 #property indicator_plots 0
 
-//--- Input Proyek 1: Proximity Line Alert
-input group "--- LINE PROXIMITY SETTINGS ---"
-input double   InpAlertDistance  = 5.0;         // Jarak Pemicu Alarm Line (Contoh: 5.0 poin)
-input bool     InpPushAlertLine  = true;        // Kirim Alarm Line ke HP
-
-//--- Input Upgrade: Imbalance Settings
+//--- Input: Hanya Menyisakan Alarm Imbalance
 input group "--- IMBALANCE ALARM SETTINGS ---"
 input bool     InpPushAlertImb   = true;        // Kirim Alarm Imbalance ke HP
 
-//--- Global Variables Proyek 1 (Lines)
+//--- Global Variables Proyek 1 (Hanya Menggambar Garis, Tanpa Alarm)
 ENUM_TIMEFRAMES LineTFs[5] = {PERIOD_H3, PERIOD_H6, PERIOD_D1, PERIOD_W1, PERIOD_MN1};
 string LineTFNames[5]     = {"H3", "H6", "D1", "W1", "MN1"};
 color LineTFColors[5]     = {clrOrange, clrMagenta, clrDodgerBlue, clrDarkGreen, clrRed};
-bool alertTriggered[5][4][5]; // State machine pengunci alarm kedekatan harga
 
 //--- Global Variables Upgrade (Imbalance Multi TF Looked)
 ENUM_TIMEFRAMES ImbTFs[5] = {PERIOD_M5, PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H3};
@@ -31,8 +25,7 @@ datetime lastProcessedBar[5]; // Mencegah alert berulang pada bar yang sama
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // Reset semua status tracker awal
-   ZeroMemory(alertTriggered);
+   // Reset status tracker awal untuk imbalance
    ZeroMemory(lastProcessedBar);
    return(INIT_SUCCEEDED);
 }
@@ -63,11 +56,8 @@ int OnCalculate(const int rates_total,
    // Validasi kecukupan data chart
    if(rates_total < 50) return(0);
 
-   double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   if(currentPrice == 0) return(rates_total);
-
    //------------------------------------------------------------------
-   // BAGIAN 1: LOGIKA PROXIMITY LINE ALERT (H3, H6, D1, W1, MN1)
+   // BAGIAN 1: HANYA MENGGAMBAR VISUAL GARIS (ALARM LINE DIHAPUS TOTAL)
    //------------------------------------------------------------------
    for(int i=0; i<5; i++) 
    {
@@ -101,33 +91,12 @@ int OnCalculate(const int rates_total,
             {
                ObjectMove(0, lineName, 0, 0, prices[j]);
             }
-            
-            double currentDistance = MathAbs(currentPrice - prices[j]);
-            if(currentDistance <= InpAlertDistance) 
-            {
-               if(!alertTriggered[i][j][k]) 
-               {
-                  alertTriggered[i][j][k] = true; 
-                  string arahHarga = (currentPrice < prices[j]) ? "KE ATAS" : "KE BAWAH";
-                  string msg = StringFormat("[ALARM LINE] %s mendekati %s %s (Candle-%d) | Arah: %s | Harga: %s", 
-                                            _Symbol, LineTFNames[i], types[j], k+1, arahHarga, DoubleToString(currentPrice, _Digits));
-                  Print(msg);
-                  if(InpPushAlertLine) SendNotification(msg);
-               }
-            }
-            else 
-            {
-               if(currentDistance > (InpAlertDistance + 0.5)) 
-               {
-                  alertTriggered[i][j][k] = false; 
-               }
-            }
          }
       }
    }
 
    //------------------------------------------------------------------
-   // BAGIAN 2: UPGRADE LOGIKA ALARM IMBALANCE (M5, M15, M30, H1, H3)
+   // BAGIAN 2: ALARM IMBALANCE TETAP AKTIF DAN DIKUNCI 1X PER BAR
    //------------------------------------------------------------------
    for(int i=0; i<5; i++)
    {
@@ -137,7 +106,7 @@ int OnCalculate(const int rates_total,
       // Ambil data candle index 1 (Candle yang BARU SAJA CLOSE/terbentuk sempurna)
       if(CopyRates(_Symbol, ImbTFs[i], 1, 1, rates) <= 0) continue;
       
-      // Proteksi awal biar tidak mengirim alarm history saat indikator baru dipasang pertama kali
+      // Proteksi awal agar tidak mengirim alarm riwayat masa lalu saat pertama kali pasang
       if(prev_calculated == 0 && lastProcessedBar[i] == 0)
       {
          lastProcessedBar[i] = rates[0].time;
@@ -149,7 +118,6 @@ int OnCalculate(const int rates_total,
       {
          double totalLength = rates[0].high - rates[0].low;
          
-         // Hindari pembagian dengan nol jika ada candle tanpa volalitas sama sekali (titik doji sempurna)
          if(totalLength > 0)
          {
             double bodyLength = MathAbs(rates[0].close - rates[0].open);
@@ -169,7 +137,7 @@ int OnCalculate(const int rates_total,
                string msgImb = StringFormat(" Imbalance Candle Created in TF %s [%s | Ratio: %.1f%%]", 
                                             ImbTFNames[i], kategoriStr, bodyRatio);
                
-               Print("[IMBALANCE DETECTED] " + msgImb);
+               Print("[IMBALANCE DETECTED]" + msgImb);
                
                if(InpPushAlertImb)
                {
