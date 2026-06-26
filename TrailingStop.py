@@ -1,100 +1,97 @@
-import MetaTrader5 as mt5
-import time
-
-# ========================================================
-# CONFIGURASI SAKLEK (ANY PROFIT - ALL SYMBOLS MEPET BROKER)
-# ========================================================
-SYMBOL_TARGET = ""            # KOSONGIN BIAR OTOMATIS HAJAR SEMUA PAIR (XAUUSD, XAUUSDm, DLL)
-FALLBACK_MEPET_POIN = 0.1     # Jarak aman (1 pip Gold) jika broker setel Stops Level = 0
-TRAILING_STEP_POIN = 0.02     # Seret SL tiap harga geser tipis biar ketat banget
-JEDA_SCAN_DETIK = 0.2         # Speed scan dinaikkan jadi 0.2 detik biar super responsif
-
-def eksekusi_modifikasi_sl(ticket, sl_baru, tp_baru):
-    request = {
-        "action": mt5.TRADE_ACTION_SLTP,
-        "position": ticket,
-        "sl": float(sl_baru),
-        "tp": float(tp_baru)
-    }
-    hasil = mt5.order_send(request)
-    if hasil.retcode != mt5.TRADE_RETCODE_DONE:
-        if hasil.retcode != 10016: # Abaikan error 10016 (harga loncat pas market ngebut)
-            print(f"   [!] Gagal geser SL Tiket #{ticket}. Kode Error: {hasil.retcode}")
-
-def pantau_dan_kunci_mepet():
-    if SYMBOL_TARGET != "":
-        positions = mt5.positions_get(symbol=SYMBOL_TARGET)
-    else:
-        positions = mt5.positions_get() # Ambil SEMUA posisi yang sedang aktif
-
-    if positions is None or len(positions) == 0:
-        return 
-
-    for pos in positions:
-        ticket = pos.ticket
-        tipe_trade = pos.type
-        harga_open = pos.price_open
-        harga_now = pos.price_current
-        sl_now = pos.sl
-        tp_now = pos.tp
-        
-        # Ambil spesifikasi simbol secara dinamis (XAUUSDm, EURUSD, dll langsung kebaca)
-        s_info = mt5.symbol_info(pos.symbol)
-        if s_info is None:
-            continue
-            
-        digits = s_info.digits
-        point = s_info.point
-        
-        # OTOMATIS NGINTIP BATAS MINIMAL (STOPS LEVEL) BROKER DETIK INI
-        stops_level_jarak = s_info.trade_stops_level * point
-        if stops_level_jarak == 0:
-            stops_level_jarak = FALLBACK_MEPET_POIN
-
-        # ----------------------------------------------------
-        # LOGIKA BUY (ANY PROFIT - TEMPEL BATAS BAWAH)
-        # ----------------------------------------------------
-        if tipe_trade == mt5.POSITION_TYPE_BUY:
-            if harga_now > harga_open: # Lolos spread & ijo bersih!
-                sl_ideal = round(harga_now - stops_level_jarak, digits)
-                
-                if sl_now == 0:
-                    print(f"➔ [{pos.symbol}] BUY #{ticket} Ijo! Pasang SL Mepet Broker: {sl_ideal}")
-                    eksekusi_modifikasi_sl(ticket, sl_ideal, tp_now)
-                else:
-                    target_step = round(sl_now + TRAILING_STEP_POIN, digits)
-                    if sl_ideal >= target_step:
-                        print(f"➔ [{pos.symbol}] BUY #{ticket} Naik! Seret SL: {sl_now} ➔ {sl_ideal}")
-                        eksekusi_modifikasi_sl(ticket, sl_ideal, tp_now)
-
-        # ----------------------------------------------------
-        # LOGIKA SELL (ANY PROFIT - TEMPEL BATAS ATAS)
-        # ----------------------------------------------------
-        elif tipe_trade == mt5.POSITION_TYPE_SELL:
-            if harga_now < harga_open: # Lolos spread & ijo bersih!
-                sl_ideal = round(harga_now + stops_level_jarak, digits)
-                
-                if sl_now == 0:
-                    print(f"➔ [{pos.symbol}] SELL #{ticket} Ijo! Pasang SL Mepet Broker: {sl_ideal}")
-                    eksekusi_modifikasi_sl(ticket, sl_ideal, tp_now)
-                else:
-                    target_step = round(sl_now - TRAILING_STEP_POIN, digits)
-                    if sl_ideal <= target_step:
-                        print(f"➔ [{pos.symbol}] SELL #{ticket} Turun! Seret SL: {sl_now} ➔ {sl_ideal}")
-                        eksekusi_modifikasi_sl(ticket, sl_ideal, tp_now)
-
-# ========================================================
-# EXECUTION ENGINE
-# ========================================================
-if not mt5.initialize():
-    print("[!] Gagal koneksi ke MT5.")
-    quit()
-
-print("[+] BOT SAKLEK AKTIF! Mengawal SEMUA pair tanpa tebang pilih...")
-
-while True:
-    try:
-        pantau_dan_kunci_mepet()
-    except Exception as e:
-        print(f"[!] Terjadi masalah: {e}")
-    time.sleep(JEDA_SCAN_DETIK)
+‎import MetaTrader5 as mt5
+‎import time
+‎
+‎========================================================
+‎CONFIGURASI SAKLEK (UNTUNG 17 PIPS, SL NEMPEL 0.3 PIPS, SCAN KILAT)
+‎========================================================
+‎SYMBOL_TARGET = "XAUUSDm, XAUUSDc"      
+‎TRIGGER_PROFIT_POIN = 1.3     # Profit 13 pips baru bot aktif
+‎TRAILING_DISTANCE_POIN = 0.3  # JARAK SL DI BELAKANG HARGA (3 PIPS SAKLEK)
+‎TRAILING_STEP_POIN = 0.15      # Tiap untung nambah 0.15 poin, SL langsung diseret
+‎JEDA_SCAN_DETIK = 0.5         # Kecepatan scan dipercepat jadi setengah detik biar gak lemot
+‎
+‎def eksekusi_modifikasi_sl(ticket, sl_baru, tp_baru):
+‎    request = {
+‎        "action": mt5.TRADE_ACTION_SLTP,
+‎        "position": ticket,
+‎        "sl": float(sl_baru),
+‎        "tp": float(tp_baru)
+‎    }
+‎    hasil = mt5.order_send(request)
+‎    if hasil.retcode != mt5.TRADE_RETCODE_DONE:
+‎        print(f"   [!] Gagal geser SL Tiket #{ticket}. Kode Error: {hasil.retcode}")
+‎
+‎def pantau_dan_kunci_posisi():
+‎    if SYMBOL_TARGET != "":
+‎        positions = mt5.positions_get(symbol=SYMBOL_TARGET)
+‎        symbol_info = mt5.symbol_info(SYMBOL_TARGET)
+‎        digits = symbol_info.digits if symbol_info is not None else 3
+‎    else:
+‎        positions = mt5.positions_get()
+‎        digits = 3
+‎
+‎    if positions is None or len(positions) == 0:
+‎        return 
+‎
+‎    for pos in positions:
+‎        ticket = pos.ticket
+‎        tipe_trade = pos.type
+‎        harga_open = pos.price_open
+‎        harga_now = pos.price_current
+‎        sl_now = pos.sl
+‎        tp_now = pos.tp
+‎
+‎        if SYMBOL_TARGET == "":
+‎            s_info = mt5.symbol_info(pos.symbol)
+‎            digits = s_info.digits if s_info else 3
+‎
+‎----------------------------------------------------
+‎LOGIKA BUY (NEMPEL KETAT 0.3 POIN)
+‎----------------------------------------------------
+‎        if tipe_trade == mt5.POSITION_TYPE_BUY:
+‎            sl_ideal_baru = round(harga_now - TRAILING_DISTANCE_POIN, digits)
+‎            trigger_price = round(harga_open + TRIGGER_PROFIT_POIN, digits)
+‎
+‎            if harga_now >= trigger_price:
+‎                if sl_now == 0:
+‎                    print(f"➔ [{pos.symbol}] BUY #{ticket} Aktif! SL awal: {sl_ideal_baru}")
+‎                    eksekusi_modifikasi_sl(ticket, sl_ideal_baru, tp_now)
+‎                else:
+‎                    target_step_sl = round(sl_now + TRAILING_STEP_POIN, digits)
+‎                    if sl_ideal_baru >= target_step_sl:
+‎                        print(f"➔ [{pos.symbol}] BUY #{ticket} Running! Seret SL: {sl_now} ➔ {sl_ideal_baru}")
+‎                        eksekusi_modifikasi_sl(ticket, sl_ideal_baru, tp_now)
+‎
+‎----------------------------------------------------
+‎LOGIKA SELL (NEMPEL KETAT 0.3 POIN)
+‎----------------------------------------------------
+‎        elif tipe_trade == mt5.POSITION_TYPE_SELL:
+‎            sl_ideal_baru = round(harga_now + TRAILING_DISTANCE_POIN, digits)
+‎            trigger_price = round(harga_open - TRIGGER_PROFIT_POIN, digits)
+‎
+‎            if harga_now <= trigger_price:
+‎                if sl_now == 0:
+‎                    print(f"➔ [{pos.symbol}] SELL #{ticket} Aktif! SL awal: {sl_ideal_baru}")
+‎                    eksekusi_modifikasi_sl(ticket, sl_ideal_baru, tp_now)
+‎                else:
+‎                    target_step_sl = round(sl_now - TRAILING_STEP_POIN, digits)
+‎                    if sl_ideal_baru <= target_step_sl:
+‎                        print(f"➔ [{pos.symbol}] SELL #{ticket} Running! Seret SL: {sl_now} ➔ {sl_ideal_baru}")
+‎                        eksekusi_modifikasi_sl(ticket, sl_ideal_baru, tp_now)
+‎
+‎========================================================
+‎RUNNING ENGINE UTAMA
+‎========================================================
+‎if not mt5.initialize():
+‎    print("[!] Gagal menginisialisasi MT5.")
+‎    quit()
+‎
+‎print("[+] KODE BARU AKTIF! Bot Trailing Super Responsif Siap Menjaga...")
+‎
+‎while True:
+‎    try:
+‎        pantau_dan_kunci_posisi()
+‎    except Exception as e:
+‎        print(f"[!] Terjadi error: {e}")
+‎    time.sleep(JEDA_SCAN_DETIK)
+‎
